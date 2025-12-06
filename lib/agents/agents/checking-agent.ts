@@ -19,10 +19,12 @@ export class CheckingAgent extends BaseAgent {
   }, context?: string): Promise<ValidationResult & { shouldRegenerate: boolean }> {
     const validation = await questionValidatorTool.execute({
       question: question.question,
+      passage: question.passage,
       answerChoices: question.answerChoices,
       correctAnswer: question.correctAnswer,
       requirements,
       context,
+      explanation: question.explanation,
     });
 
     // Determine if regeneration is needed

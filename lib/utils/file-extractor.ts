@@ -7,35 +7,46 @@ import mammoth from 'mammoth';
 import sharp from 'sharp';
 
 // pdf-parse is a CommonJS module, use dynamic import
-let pdfParse: any;
+let pdfParse: any = null;
+let pdfParseInitialized = false;
+
 async function getPdfParse() {
-  if (!pdfParse) {
-    try {
-      const pdfParseModule = await import('pdf-parse');
-      // Try different ways to access the function
-      pdfParse = pdfParseModule.default || pdfParseModule;
-      
-      // If still not a function, check if it's wrapped
-      if (typeof pdfParse !== 'function') {
-        // Check if default has a default (double-wrapped)
-        if (pdfParseModule.default && typeof pdfParseModule.default === 'object') {
-          pdfParse = pdfParseModule.default.default || pdfParseModule.default;
-        }
-        // If still not a function, try accessing the actual export
-        if (typeof pdfParse !== 'function' && 'default' in pdfParseModule) {
-          const defaultExport = (pdfParseModule as any).default;
-          if (typeof defaultExport === 'function') {
-            pdfParse = defaultExport;
-          } else if (defaultExport && typeof defaultExport === 'object' && 'default' in defaultExport) {
-            pdfParse = defaultExport.default;
-          }
+  if (pdfParseInitialized) {
+    return pdfParse;
+  }
+  
+  pdfParseInitialized = true;
+  
+  try {
+    // Try dynamic import (works in ES modules)
+    const pdfParseModule = await import('pdf-parse');
+    
+    // pdf-parse can export in different ways depending on the module system
+    // Try common patterns
+    if (typeof pdfParseModule === 'function') {
+      pdfParse = pdfParseModule;
+    } else if (typeof pdfParseModule.default === 'function') {
+      pdfParse = pdfParseModule.default;
+    } else if (typeof pdfParseModule === 'object' && pdfParseModule !== null) {
+      // Look for the function in the module object
+      for (const key in pdfParseModule) {
+        const value = (pdfParseModule as any)[key];
+        if (typeof value === 'function') {
+          pdfParse = value;
+          break;
         }
       }
-    } catch (error) {
-      console.error('Failed to import pdf-parse:', error);
-      throw error;
     }
+    
+    if (typeof pdfParse !== 'function') {
+      console.error('pdf-parse module structure:', Object.keys(pdfParseModule || {}));
+      pdfParse = null;
+    }
+  } catch (error) {
+    console.error('Failed to import pdf-parse:', error);
+    pdfParse = null;
   }
+  
   return pdfParse;
 }
 
@@ -63,9 +74,10 @@ export async function extractFromPDF(filePath: string): Promise<ExtractedContent
     const pdfParseFn = await getPdfParse();
     
     // Ensure it's a function before calling
-    if (typeof pdfParseFn !== 'function') {
+    if (!pdfParseFn || typeof pdfParseFn !== 'function') {
       // If pdf-parse isn't working, return empty content instead of crashing
       console.warn(`pdf-parse not available for ${filePath}. PDF parsing is currently disabled.`);
+      console.warn('This is expected if pdf-parse failed to load. PDF files will be skipped.');
       return {
         text: '',
         images: [],
@@ -76,6 +88,7 @@ export async function extractFromPDF(filePath: string): Promise<ExtractedContent
       };
     }
     
+    // Call pdf-parse with the buffer
     const pdfData = await pdfParseFn(fileBuffer);
     
     // Extract images from PDF (basic implementation)
@@ -93,7 +106,9 @@ export async function extractFromPDF(filePath: string): Promise<ExtractedContent
     };
   } catch (error) {
     // Gracefully handle PDF parsing errors
-    console.warn(`Failed to parse PDF ${filePath}:`, error instanceof Error ? error.message : error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn(`Failed to parse PDF ${filePath}:`, errorMessage);
+    // Return empty content so the system can continue
     return {
       text: '',
       images: [],

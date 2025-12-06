@@ -1,4 +1,5 @@
 import { BaseAgent } from './base-agent';
+import { extractJSON } from '@/lib/utils/json-extractor';
 import OpenAI from 'openai';
 
 export interface QuestionSelection {
@@ -77,23 +78,8 @@ Select the next question and respond in JSON format:
   "reasoning": "brief explanation of why this question was selected"
 }`;
 
-    const response = await this.chatCompletion([
-      {
-        role: 'system',
-        content: 'You are an expert SAT test structure analyzer. Always respond with valid JSON.',
-      },
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ], undefined, { type: 'function', function: { name: 'read_file' } });
-
-    // Handle tool calls if any
-    let finalResponse = response;
-    if (response.choices[0].message.tool_calls) {
-      const toolMessages = await this.handleToolCalls(response.choices[0].message.tool_calls);
-      // Include the assistant message with tool_calls before the tool messages
-      finalResponse = await this.chatCompletion([
+    const response = await this.chatCompletion(
+      [
         {
           role: 'system',
           content: 'You are an expert SAT test structure analyzer. Always respond with valid JSON.',
@@ -102,13 +88,38 @@ Select the next question and respond in JSON format:
           role: 'user',
           content: prompt,
         },
-        {
-          role: 'assistant',
-          content: response.choices[0].message.content || null,
-          tool_calls: response.choices[0].message.tool_calls,
-        },
-        ...toolMessages,
-      ]);
+      ],
+      undefined,
+      { type: 'function', function: { name: 'read_file' } },
+      { type: 'json_object' }
+    );
+
+    // Handle tool calls if any
+    let finalResponse = response;
+    if (response.choices[0].message.tool_calls) {
+      const toolMessages = await this.handleToolCalls(response.choices[0].message.tool_calls);
+        // Include the assistant message with tool_calls before the tool messages
+        finalResponse = await this.chatCompletion(
+          [
+            {
+              role: 'system',
+              content: 'You are an expert SAT test structure analyzer. Always respond with valid JSON.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+            {
+              role: 'assistant',
+              content: response.choices[0].message.content || null,
+              tool_calls: response.choices[0].message.tool_calls,
+            },
+            ...toolMessages,
+          ],
+          undefined,
+          undefined,
+          { type: 'json_object' }
+        );
     }
 
     const content = finalResponse.choices[0].message.content;
@@ -117,7 +128,7 @@ Select the next question and respond in JSON format:
     }
 
     try {
-      const selection = JSON.parse(content);
+      const selection = extractJSON(content);
       return {
         section: selection.section,
         topic: selection.topic,

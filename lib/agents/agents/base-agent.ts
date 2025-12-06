@@ -50,21 +50,37 @@ export abstract class BaseAgent {
   protected async chatCompletion(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     tools?: any[],
-    toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
+    toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } },
+    responseFormat?: { type: 'json_object' }
   ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    // If tools is explicitly provided (even if empty array), use it
+    // Otherwise, use default tools
+    const toolsToUse = tools !== undefined 
+      ? (tools.length > 0 ? tools.map(t => ({
+          type: 'function' as const,
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          },
+        })) : undefined)
+      : this.tools.map(t => ({
+          type: 'function' as const,
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          },
+        }));
+
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages,
-      tools: tools || this.tools.map(t => ({
-        type: 'function' as const,
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters,
-        },
-      })),
-      tool_choice: toolChoice || 'auto',
+      ...(toolsToUse && { tools: toolsToUse }),
+      // Only set tool_choice if tools are provided
+      ...(toolsToUse && { tool_choice: toolChoice || 'auto' }),
       temperature: 0.7,
+      ...(responseFormat && { response_format: responseFormat }),
     });
 
     return response;

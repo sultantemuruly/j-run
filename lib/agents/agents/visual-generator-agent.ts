@@ -1,6 +1,7 @@
 import { BaseAgent } from './base-agent';
 import { RetrievedContext } from '@/lib/rag/retriever';
 import { visualValidatorTool, VisualValidationResult } from '../tools/visual-validator';
+import { extractJSON } from '@/lib/utils/json-extractor';
 
 export interface GeneratedVisual {
   type: 'graph' | 'table' | 'diagram' | 'chart' | 'image';
@@ -39,25 +40,59 @@ export class VisualGeneratorAgent extends BaseAgent {
     while (iteration < maxIterations) {
       const prompt = this.buildGenerationPrompt(options, lastValidation, iteration);
 
-      const response = await this.chatCompletion([
-        {
-          role: 'system',
-          content: 'You are an expert at creating educational visuals for SAT questions. Generate clear, accurate, and appropriate visuals. Always respond with valid JSON.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ]);
+      const response = await this.chatCompletion(
+        [
+          {
+            role: 'system',
+            content: 'You are an expert at creating educational visuals for SAT questions. Generate clear, accurate, and appropriate visuals. You MUST respond with valid JSON only, no markdown, no code blocks, just the raw JSON object.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        undefined,
+        undefined,
+        { type: 'json_object' }
+      );
 
-      const content = response.choices[0].message.content;
+      // Handle tool calls if any
+      let finalResponse = response;
+      if (response.choices[0].message.tool_calls) {
+        const toolMessages = await this.handleToolCalls(response.choices[0].message.tool_calls);
+        // Include the assistant message with tool_calls before the tool messages
+        finalResponse = await this.chatCompletion(
+          [
+            {
+              role: 'system',
+              content: 'You are an expert at creating educational visuals for SAT questions. Generate clear, accurate, and appropriate visuals. You MUST respond with valid JSON only, no markdown, no code blocks, just the raw JSON object.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+            {
+              role: 'assistant',
+              content: response.choices[0].message.content || null,
+              tool_calls: response.choices[0].message.tool_calls,
+            },
+            ...toolMessages,
+          ],
+          undefined,
+          undefined,
+          { type: 'json_object' }
+        );
+      }
+
+      const content = finalResponse.choices[0].message.content;
       if (!content) {
         throw new Error('No response from Visual Generator Agent');
       }
 
       let generatedVisual: GeneratedVisual;
       try {
-        const parsed = JSON.parse(content);
+        // Extract JSON from response (handles markdown code blocks)
+        const parsed = extractJSON(content);
         generatedVisual = {
           type: parsed.type || 'graph',
           description: parsed.description,

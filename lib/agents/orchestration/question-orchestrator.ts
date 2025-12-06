@@ -68,18 +68,21 @@ export class QuestionOrchestrator {
       let generatedQuestion: GeneratedQuestion;
       let questionValid = false;
       let questionIterations = 0;
+      let lastValidation: ValidationResult | null = null;
 
       while (!questionValid && questionIterations < maxIterations) {
         questionIterations++;
         iterations++;
 
+        // Pass the last validation feedback to the generator so it can improve
         generatedQuestion = await this.questionGeneratorAgent.execute({
           section: request.section,
           topic: request.topic,
           subtopic: request.subtopic,
           difficulty: request.difficulty,
           context,
-          maxIterations: 3,
+          maxIterations: 2, // Reduced since orchestrator handles the loop
+          externalValidation: lastValidation, // Pass feedback from previous iteration
         });
 
         // Step 3: Checking Agent - Validate question
@@ -95,15 +98,36 @@ export class QuestionOrchestrator {
           context.rules
         );
 
-        if (validation.isValid && validation.score >= 0.8) {
+        // If validator found the correct answer was wrong, fix it
+        if (validation.correctedAnswer && validation.correctedAnswer !== generatedQuestion.correctAnswer) {
+          console.log(`Correcting answer from ${generatedQuestion.correctAnswer} to ${validation.correctedAnswer}`);
+          generatedQuestion.correctAnswer = validation.correctedAnswer as 'A' | 'B' | 'C' | 'D';
+          // Re-validate with corrected answer
+          const revalidation = await this.checkingAgent.execute(
+            generatedQuestion,
+            {
+              section: request.section,
+              topic: request.topic,
+              subtopic: request.subtopic,
+              difficulty: request.difficulty,
+            },
+            context.rules
+          );
+          lastValidation = revalidation;
+        } else {
+          lastValidation = validation;
+        }
+
+        if (lastValidation.isValid && lastValidation.score >= 0.8) {
           questionValid = true;
-        } else if (validation.shouldRegenerate && questionIterations < maxIterations) {
-          console.log(`Question validation failed (score: ${validation.score}). Regenerating...`);
-          // The question generator will use the validation feedback in its next iteration
+        } else if (lastValidation.shouldRegenerate && questionIterations < maxIterations) {
+          console.log(`Question validation failed (score: ${lastValidation.score}). Issues: ${lastValidation.issues.join('; ')}`);
+          console.log(`Corrections needed: ${lastValidation.corrections || 'Please address the issues above'}`);
+          // Continue loop - validation feedback will be passed to generator in next iteration
           continue;
         } else {
           // Accept the question even if not perfect (after max iterations)
-          console.warn(`Question validation score: ${validation.score}. Accepting after ${questionIterations} iterations.`);
+          console.warn(`Question validation score: ${lastValidation.score}. Accepting after ${questionIterations} iterations.`);
           questionValid = true;
         }
       }
@@ -123,41 +147,58 @@ export class QuestionOrchestrator {
           visualIterations++;
           iterations++;
 
-          // Use enhanced execute method if visual examples are available
-          if (context.visualExamples && context.visualExamples.length > 0) {
-            generatedVisual = await (this.visualGeneratorAgent as any).executeWithVision?.({
-              question: generatedQuestion.question,
-              visualDescription: generatedQuestion.visualDescription!,
-              context,
-              requirements: {
-                section: request.section,
-                topic: request.topic,
-                subtopic: request.subtopic,
-              },
-              maxIterations: 3,
-            }) || await this.visualGeneratorAgent.execute({
-              question: generatedQuestion.question,
-              visualDescription: generatedQuestion.visualDescription!,
-              context,
-              requirements: {
-                section: request.section,
-                topic: request.topic,
-                subtopic: request.subtopic,
-              },
-              maxIterations: 3,
-            });
-          } else {
-          generatedVisual = await this.visualGeneratorAgent.execute({
-            question: generatedQuestion.question,
-            visualDescription: generatedQuestion.visualDescription!,
-            context,
-            requirements: {
-              section: request.section,
-              topic: request.topic,
-              subtopic: request.subtopic,
-            },
-            maxIterations: 3,
-          });
+          // Generate visual (executeWithVision will use enhanced method if available, otherwise falls back to execute)
+          try {
+            if (context.visualExamples && context.visualExamples.length > 0) {
+              // Try enhanced method first if available
+              const enhancedMethod = (this.visualGeneratorAgent as any).executeWithVision;
+              if (enhancedMethod && typeof enhancedMethod === 'function') {
+                generatedVisual = await enhancedMethod({
+                  question: generatedQuestion.question,
+                  visualDescription: generatedQuestion.visualDescription!,
+                  context,
+                  requirements: {
+                    section: request.section,
+                    topic: request.topic,
+                    subtopic: request.subtopic,
+                  },
+                  maxIterations: 3,
+                });
+              } else {
+                // Fallback to regular execute
+                generatedVisual = await this.visualGeneratorAgent.execute({
+                  question: generatedQuestion.question,
+                  visualDescription: generatedQuestion.visualDescription!,
+                  context,
+                  requirements: {
+                    section: request.section,
+                    topic: request.topic,
+                    subtopic: request.subtopic,
+                  },
+                  maxIterations: 3,
+                });
+              }
+            } else {
+              generatedVisual = await this.visualGeneratorAgent.execute({
+                question: generatedQuestion.question,
+                visualDescription: generatedQuestion.visualDescription!,
+                context,
+                requirements: {
+                  section: request.section,
+                  topic: request.topic,
+                  subtopic: request.subtopic,
+                },
+                maxIterations: 3,
+              });
+            }
+          } catch (error) {
+            console.error('Error generating visual:', error);
+            // If visual generation fails, mark as needing regeneration but continue
+            generatedVisual = {
+              type: 'graph',
+              description: generatedQuestion.visualDescription || 'Visual generation failed',
+              needsRegeneration: true,
+            };
           }
 
           // Step 5: Visual Checking Agent - Validate visual

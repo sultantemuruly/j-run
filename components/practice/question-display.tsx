@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 
 export interface QuestionData {
   question: {
+    passage?: string; // Reading passage for Reading & Writing questions
     question: string;
     answerChoices: string[];
     correctAnswer: 'A' | 'B' | 'C' | 'D';
@@ -66,16 +67,87 @@ export default function QuestionDisplay({
         </span>
       </div>
 
+      {/* Passage (for Reading & Writing questions) */}
+      {question.passage && (() => {
+        // Detect multiple passages (Passage 1, Passage 2, etc.)
+        const passageText = question.passage;
+        const passageRegex = /(?:^|\n)\s*Passage\s+(\d+):\s*(.+?)(?=\n\s*Passage\s+\d+:|$)/gis;
+        const matches = Array.from(passageText.matchAll(passageRegex));
+        
+        if (matches.length > 1) {
+          // Multiple passages detected
+          return (
+            <div className="mb-6 space-y-4">
+              {matches.map((match, index) => (
+                <div key={index} className="p-5 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-3 font-semibold uppercase tracking-wide">
+                    Passage {match[1]}
+                  </p>
+                  <p className="text-gray-900 leading-relaxed whitespace-pre-wrap">{match[2].trim()}</p>
+                </div>
+              ))}
+            </div>
+          );
+        } else {
+          // Single passage
+          return (
+            <div className="mb-6 p-5 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-sm text-gray-600 mb-3 font-semibold uppercase tracking-wide">Reading Passage</p>
+              <p className="text-gray-900 leading-relaxed whitespace-pre-wrap">{passageText}</p>
+            </div>
+          );
+        }
+      })()}
+
       {/* Visual (if present) */}
       {visual && (
         <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2 font-medium">Visual Content:</p>
-          <p className="text-sm text-gray-700">{visual.description}</p>
+          <p className="text-sm text-gray-600 mb-2 font-medium">
+            {visual.type === 'table' ? 'Table' : 
+             visual.type === 'graph' || visual.type === 'chart' ? 'Graph' : 
+             visual.type === 'diagram' ? 'Diagram' : 
+             'Visual Content'}
+          </p>
           {visual.svg && (
             <div 
-              className="mt-4"
+              className="mt-4 overflow-x-auto"
               dangerouslySetInnerHTML={{ __html: visual.svg }}
             />
+          )}
+          {visual.data && typeof visual.data === 'object' && (
+            <div className="mt-4">
+              {visual.type === 'table' && Array.isArray(visual.data.rows) ? (
+                <table className="min-w-full border border-gray-300">
+                  <thead>
+                    {visual.data.headers && (
+                      <tr>
+                        {visual.data.headers.map((header: string, i: number) => (
+                          <th key={i} className="border border-gray-300 px-4 py-2 bg-gray-100 font-semibold">
+                            {header}
+                          </th>
+                        ))}
+                      </tr>
+                    )}
+                  </thead>
+                  <tbody>
+                    {visual.data.rows.map((row: any[], i: number) => (
+                      <tr key={i}>
+                        {row.map((cell: any, j: number) => (
+                          <td key={j} className="border border-gray-300 px-4 py-2">
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-gray-700">{visual.description}</p>
+              )}
+            </div>
+          )}
+          {!visual.svg && !visual.data && (
+            <p className="text-sm text-gray-700">{visual.description}</p>
           )}
         </div>
       )}
@@ -88,8 +160,13 @@ export default function QuestionDisplay({
         <div className="space-y-3">
           {question.answerChoices.map((choice, index) => {
             const letter = String.fromCharCode(65 + index) as 'A' | 'B' | 'C' | 'D';
-            const isSelected = selectedAnswer === letter;
-            const isCorrectAnswer = letter === question.correctAnswer;
+            // Normalize for comparison
+            const normalizedLetter = letter.toUpperCase().trim();
+            const normalizedCorrect = question.correctAnswer?.toUpperCase().trim();
+            const normalizedSelected = selectedAnswer?.toUpperCase().trim();
+            
+            const isSelected = normalizedSelected === normalizedLetter;
+            const isCorrectAnswer = normalizedLetter === normalizedCorrect;
             const showCorrect = showResult && isCorrectAnswer;
             const showIncorrect = showResult && isSelected && !isCorrectAnswer;
 
@@ -111,7 +188,9 @@ export default function QuestionDisplay({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="font-semibold text-gray-700">{letter}.</span>
-                    <span className="text-gray-900">{choice}</span>
+                    <span className="text-gray-900">
+                      {choice.replace(/^[A-D][\.\)]\s*/i, '').trim()}
+                    </span>
                   </div>
                   {showResult && (
                     <>

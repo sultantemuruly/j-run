@@ -107,7 +107,22 @@ export default function PracticeSessionPage() {
     if (showResult) return;
     
     setSelectedAnswer(answer);
-    const correct = answer === questionData?.question.correctAnswer;
+    
+    // Normalize both values for comparison (uppercase, trim)
+    const normalizedAnswer = answer.toUpperCase().trim() as 'A' | 'B' | 'C' | 'D';
+    const normalizedCorrect = questionData?.question.correctAnswer?.toUpperCase().trim() as 'A' | 'B' | 'C' | 'D' | undefined;
+    
+    // Debug logging for math questions
+    if (questionData?.metadata.section === 'math') {
+      console.log('Math Answer Check:', {
+        userAnswer: normalizedAnswer,
+        correctAnswer: normalizedCorrect,
+        answerChoices: questionData.question.answerChoices,
+        match: normalizedAnswer === normalizedCorrect
+      });
+    }
+    
+    const correct = normalizedAnswer === normalizedCorrect;
     setIsCorrect(correct);
     setShowResult(true);
   };
