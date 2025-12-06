@@ -1,9 +1,11 @@
-import { pgTable, serial, varchar, integer } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core';
 
 export const usersTable = pgTable('users', {
-  id: serial('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
+  id: uuid('id').primaryKey(), // This will be the Supabase auth user ID
   email: varchar('email', { length: 255 }).notNull().unique(),
-  age: integer('age').notNull(),
+  firstName: varchar('first_name', { length: 255 }).notNull(),
+  lastName: varchar('last_name', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

@@ -3,9 +3,17 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
+import { useEffect } from "react";
 
 export default function Home() {
-  const { user, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, refreshProfile } = useAuth();
+
+  useEffect(() => {
+    // Refresh profile when component mounts if user is logged in
+    if (user && !profile) {
+      refreshProfile();
+    }
+  }, [user, profile, refreshProfile]);
 
   if (loading) {
     return (
@@ -18,7 +26,13 @@ export default function Home() {
   return (
     <div className="min-h-screen p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8">Welcome to j-run</h1>
+        {user ? (
+          <h1 className="text-4xl font-bold mb-8">
+            Hello{profile?.firstName ? `, ${profile.firstName}` : ''}!
+          </h1>
+        ) : (
+          <h1 className="text-4xl font-bold mb-8">Welcome to j-run</h1>
+        )}
 
         {user ? (
           <div className="space-y-4">
@@ -29,6 +43,11 @@ export default function Home() {
               <p className="text-sm text-green-600 mt-2">
                 Email: {user.email}
               </p>
+              {profile && (
+                <p className="text-sm text-green-600 mt-1">
+                  Name: {profile.firstName} {profile.lastName}
+                </p>
+              )}
             </div>
 
             <div className="flex gap-4">

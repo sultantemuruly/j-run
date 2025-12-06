@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 export function SignupForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -18,20 +20,55 @@ export function SignupForm() {
     setError(null);
     setMessage(null);
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+        },
       },
     });
 
     if (error) {
       setError(error.message);
-    } else {
-      setMessage('Check your email to confirm your account!');
+      setLoading(false);
+    } else if (data.user) {
+      // Save user profile to database
+      // Note: User might not have active session yet (email confirmation required)
+      // So we pass isSignup flag to allow profile creation
+      try {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: data.user.id,
+            email: data.user.email,
+            firstName,
+            lastName,
+            isSignup: true, // Flag to indicate this is during signup
+          }),
+        });
+
+        if (!response.ok) {
+          // If profile creation fails, it's okay - it will be created in callback
+          // when user confirms email, or we can retry later
+          console.warn('Profile creation failed, will be created on email confirmation');
+        }
+
+        setMessage('Check your email to confirm your account!');
+      } catch (err) {
+        // Don't show error - profile will be created when they confirm email
+        // The callback route will handle it
+        console.warn('Profile creation failed:', err);
+        setMessage('Check your email to confirm your account!');
+      }
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogleSignup = async () => {
@@ -56,6 +93,38 @@ export function SignupForm() {
       <h2 className="text-2xl font-bold text-center">Sign Up</h2>
 
       <form onSubmit={handleEmailSignup} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="firstName" className="block text-sm font-medium mb-1">
+              First Name
+            </label>
+            <input
+              id="firstName"
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="John"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="lastName" className="block text-sm font-medium mb-1">
+              Last Name
+            </label>
+            <input
+              id="lastName"
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Doe"
+            />
+          </div>
+        </div>
+
         <div>
           <label htmlFor="email" className="block text-sm font-medium mb-1">
             Email
