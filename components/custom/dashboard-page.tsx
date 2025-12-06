@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/contexts/auth-context";
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect } from "react";
 import { BookOpen, Brain, FileText, ArrowRight, TrendingUp } from "lucide-react";
 
@@ -58,6 +59,19 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
+          <div className="mb-6">
+            <Link href="/" className="inline-flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <Image 
+                src="/logo-grey.png" 
+                alt="J-Run SAT" 
+                width={200}
+                height={53}
+                className="h-14 w-auto"
+              />
+              <span className="text-4xl font-bold text-gray-900 pt-2">J-Run</span>
+            </Link>
+            <div className="mt-4 border-b border-gray-200"></div>
+          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-2">
             Hello{profile?.firstName ? `, ${profile.firstName}` : ''}! 👋
           </h1>

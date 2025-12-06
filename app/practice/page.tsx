@@ -12,6 +12,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function PracticePage() {
   const [selectedSection, setSelectedSection] = useState<string>('');
@@ -114,12 +115,27 @@ export default function PracticePage() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <Link 
-            href="/" 
-            className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-4 text-sm"
-          >
-            ← Back to Dashboard
-          </Link>
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <Link href="/" className="inline-flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <Image 
+                  src="/logo-grey.png" 
+                  alt="J-Run SAT" 
+                  width={200}
+                  height={53}
+                  className="h-14 w-auto"
+                />
+                <span className="text-4xl font-bold text-gray-900">J-Run Academy</span>
+              </Link>
+              <Link 
+                href="/" 
+                className="inline-flex items-center text-gray-600 hover:text-gray-900 text-sm"
+              >
+                ← Back to Dashboard
+              </Link>
+            </div>
+            <div className="border-b border-gray-200"></div>
+          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-2">
             Practice
           </h1>
