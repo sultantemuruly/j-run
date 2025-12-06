@@ -96,18 +96,49 @@ export default function PracticePage() {
   const difficulties = ['Easy', 'Medium', 'Hard'];
 
   const handleStartPractice = () => {
-    // Will be implemented later with AI question generation
-    console.log('Starting practice with filters:', {
+    if (!selectedSection || selectedTopics.length === 0 || selectedDifficulties.length === 0) {
+      return;
+    }
+
+    // Build query params
+    const params = new URLSearchParams({
+      mode: 'custom',
       section: selectedSection,
-      topics: selectedTopics,
-      subtopics: selectedSubtopics,
-      difficulties: selectedDifficulties,
+      topics: selectedTopics.join(','),
+      subtopics: selectedSubtopics.join(','),
+      difficulties: selectedDifficulties.join(','),
     });
+
+    // Navigate to practice session
+    window.location.href = `/practice/session?${params.toString()}`;
   };
 
-  const handleStartFullTest = () => {
-    // Will be implemented later
-    console.log('Starting full-length practice test');
+  const handleStartFullTest = async () => {
+    try {
+      // Initialize practice test session
+      const response = await fetch('/api/practice-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'initialize',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to initialize practice test');
+      }
+
+      const result = await response.json();
+      // Navigate to practice test session (to be implemented)
+      // For now, show alert
+      alert('Practice test mode is being implemented. Session initialized: ' + result.session.id);
+    } catch (error) {
+      console.error('Error starting practice test:', error);
+      alert('Failed to start practice test. Please try again.');
+    }
   };
 
   return (
@@ -402,7 +433,7 @@ export default function PracticePage() {
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <div>
+    <div>
                               <p className="text-xs text-gray-500 mb-0.5">{topic}</p>
                               <p className="text-sm font-medium">{subtopic}</p>
                             </div>

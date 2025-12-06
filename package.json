@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "initialize-rag": "tsx scripts/initialize-rag.ts"
   },
   "dependencies": {
+    "@pinecone-database/pinecone": "^6.1.3",
     "@radix-ui/react-slot": "^1.2.4",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
@@ -17,10 +19,15 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.0",
     "lucide-react": "^0.555.0",
+    "mammoth": "^1.11.0",
     "next": "16.0.7",
+    "openai": "^6.10.0",
+    "openai-agents": "^1.1.0",
+    "pdf-parse": "^2.4.5",
     "postgres": "^3.4.7",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
