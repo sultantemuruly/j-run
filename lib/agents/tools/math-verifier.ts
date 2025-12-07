@@ -56,7 +56,7 @@ Respond in JSON format:
   "isExplanationCorrect": boolean${explanation ? ' (check if the given explanation is mathematically sound)' : ' (true if no explanation provided)'},
   "explanationErrors": ["list of any errors found in the explanation, if any"],
   "calculationSteps": ["step 1 with calculation", "step 2 with calculation", ...],
-  "explanation": "clear, correct explanation of the solution"
+  "explanation": "clear, correct explanation of the solution. Use LaTeX format ($...$ for inline math) for all mathematical expressions: fractions, operations, variables, equations, etc."
 }`;
 
     const OpenAI = (await import('openai')).default;

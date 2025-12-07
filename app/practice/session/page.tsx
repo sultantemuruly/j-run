@@ -176,7 +176,7 @@ export default function PracticeSessionPage() {
             </Link>
             <Link 
               href="/practice" 
-              className="inline-flex items-center text-gray-600 hover:text-gray-900 text-sm"
+              className="inline-flex items-center text-gray-800 hover:text-gray-900 font-medium text-sm transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Practice

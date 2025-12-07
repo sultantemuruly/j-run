@@ -3,6 +3,7 @@ import { QuestionGeneratorAgent, GeneratedQuestion } from '../agents/question-ge
 import { VisualGeneratorAgent, GeneratedVisual } from '../agents/visual-generator-agent';
 import { CheckingAgent } from '../agents/checking-agent';
 import { VisualCheckingAgent } from '../agents/visual-checking-agent';
+import { ValidationResult } from '../tools/question-validator';
 
 export interface QuestionGenerationRequest {
   section: 'math' | 'reading-and-writing';
@@ -140,6 +141,22 @@ export class QuestionOrchestrator {
       let generatedVisual: GeneratedVisual | undefined;
       if (generatedQuestion.needsVisual && generatedQuestion.visualDescription) {
         console.log('Step 4: Generating visual...');
+        
+        // Pre-validate visual description to ensure it contains all necessary information
+        const visualDescCheck = await this.validateVisualDescription(
+          generatedQuestion.visualDescription,
+          generatedQuestion.question
+        );
+        
+        if (!visualDescCheck.isComplete) {
+          console.warn('Visual description missing critical information:', visualDescCheck.missingInfo);
+          // Try to enhance the visual description
+          generatedQuestion.visualDescription = await this.enhanceVisualDescription(
+            generatedQuestion.visualDescription,
+            generatedQuestion.question
+          );
+        }
+        
         let visualValid = false;
         let visualIterations = 0;
 
@@ -242,6 +259,100 @@ export class QuestionOrchestrator {
     } catch (error) {
       console.error('Error in question orchestration:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Validate that visual description contains all necessary information from the question
+   */
+  private async validateVisualDescription(
+    visualDescription: string,
+    question: string
+  ): Promise<{ isComplete: boolean; missingInfo: string[] }> {
+    const missingInfo: string[] = [];
+    
+    // Extract critical information from question
+    const angleMatches = question.match(/\d+\s*(?:degrees?|°)/gi);
+    const angles = angleMatches || [];
+    
+    // Check if all angles are mentioned in visual description
+    for (const angle of angles) {
+      if (!visualDescription.toLowerCase().includes(angle.toLowerCase())) {
+        missingInfo.push(`Angle ${angle} not mentioned in visual description`);
+      }
+    }
+    
+    // Check for common geometry relationships
+    if (question.match(/triangle|right|90|perpendicular/gi) && !visualDescription.match(/90|right|perpendicular/gi)) {
+      missingInfo.push('Right angle (90°) not mentioned - critical for triangle problems');
+    }
+    
+    // Check for measurements
+    const measurementPatterns = ['x', '2x', '3x', 'length', 'width', 'height', 'side'];
+    const hasMeasurements = measurementPatterns.some(pattern => 
+      question.toLowerCase().includes(pattern) && !visualDescription.toLowerCase().includes(pattern)
+    );
+    
+    if (hasMeasurements) {
+      missingInfo.push('Some measurements from question not included in visual description');
+    }
+    
+    return {
+      isComplete: missingInfo.length === 0,
+      missingInfo,
+    };
+  }
+
+  /**
+   * Enhance visual description with missing critical information
+   */
+  private async enhanceVisualDescription(
+    visualDescription: string,
+    question: string
+  ): Promise<string> {
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const prompt = `The following visual description is missing some critical information from the question. Enhance it to include ALL necessary information.
+
+Question: ${question}
+
+Current Visual Description: ${visualDescription}
+
+Extract ALL angles, measurements, relationships, and constraints from the question and ensure they are ALL included in the enhanced description.
+
+Enhanced visual description should:
+1. Include ALL angles mentioned (especially 90°, 60°, 30°, etc.)
+2. Include ALL measurements and variables (x, 2x, etc.)
+3. Include ALL relationships (twice as long, half of, etc.)
+4. Be concise and NOT duplicate the question text
+5. Only describe what the visual SHOWS, not what the question asks
+
+Respond with ONLY the enhanced visual description, nothing else.`;
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert at creating visual descriptions for educational content. Always include all necessary information.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 300,
+      });
+
+      return response.choices[0].message.content?.trim() || visualDescription;
+    } catch (error) {
+      console.error('Error enhancing visual description:', error);
+      return visualDescription; // Return original if enhancement fails
     }
   }
 }

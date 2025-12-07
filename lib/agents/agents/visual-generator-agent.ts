@@ -141,7 +141,28 @@ export class VisualGeneratorAgent extends BaseAgent {
     // Use actual visual examples from context
     const visualExamples = context.visualExamples || [];
 
-    let prompt = `Generate a visual representation for a SAT question:
+    // Extract all critical information from the question
+    const extractCriticalInfo = (q: string): string[] => {
+      const info: string[] = [];
+      // Extract angles (e.g., "60°", "90 degrees", "30°")
+      const angleMatches = q.match(/\d+\s*(?:degrees?|°)/gi);
+      if (angleMatches) info.push(...angleMatches.map(m => `Angle: ${m}`));
+      // Extract measurements (e.g., "x", "2x", "5 cm", "10 units")
+      const measurementMatches = q.match(/(?:\d+[x\s]*(?:cm|units?|meters?|inches?)?|[a-z]\d*|[a-z]\s*\*\s*\d+)/gi);
+      if (measurementMatches) info.push(...measurementMatches.map(m => `Measurement: ${m}`));
+      // Extract relationships (e.g., "twice as long", "half of")
+      if (q.match(/twice|double|half|triple|equal|same/gi)) {
+        info.push('Contains relationships between measurements');
+      }
+      return info;
+    };
+
+    const criticalInfo = extractCriticalInfo(question);
+
+    let prompt = `Generate a visual representation for a SAT question.
+
+CRITICAL: Before generating, extract ALL information from the question:
+${criticalInfo.length > 0 ? `\nExtracted Information:\n${criticalInfo.map((info, i) => `${i + 1}. ${info}`).join('\n')}\n` : ''}
 
 Question: ${question}
 
@@ -157,22 +178,43 @@ ${context.rules}
 
 ${visualExamples.length > 0 ? `\nIMPORTANT: You have ${visualExamples.length} example visual(s) from actual SAT materials. Study these examples carefully and generate a visual that matches their style, format, and complexity:\n${visualExamples.map((ex, i) => `Example ${i + 1} (${ex.metadata.section || 'N/A'}, ${ex.metadata.topic || 'N/A'}, ${ex.metadata.difficulty || 'N/A'}):\n${ex.description}\n[Image data available - use this as reference for style and format]`).join('\n\n')}\n\n` : ''}
 
-Generate a visual that:
-1. Is directly relevant to the question
-2. Is clear and easy to read
-3. Matches SAT visual standards (use the examples above as reference)
-4. Is appropriately complex for the difficulty level
-5. Accurately represents the data/concepts
-6. Follows the same style and format as the example visuals provided
+MANDATORY REQUIREMENTS:
+1. COMPLETENESS: Include ALL information extracted above in the visual:
+   ${criticalInfo.length > 0 ? criticalInfo.map((info, i) => `   - ${info}`).join('\n') : '   - All angles, measurements, and relationships from the question'}
+   - If the question mentions an angle (like 90°, 60°, 30°), it MUST be clearly labeled in the visual
+   - If the question mentions relationships (like "twice as long"), they MUST be visually represented
 
-${lastValidation && !lastValidation.isValid ? `\nPrevious attempt had issues:\n${lastValidation.issues.join('\n')}\n\nCorrections needed:\n${lastValidation.corrections || 'Please address the issues above.'}\n\nGenerate an improved version:` : ''}
+2. NO DUPLICATES: 
+   - The description should be concise and NOT repeat the same information
+   - Do NOT include the question text or task description in the visual description
+   - Only describe what the visual SHOWS, not what the question asks
+
+3. SIZE AND CLARITY:
+   - For SVG diagrams: Use viewBox="0 0 600 600" or larger (minimum 500x500)
+   - All text labels: font-size="16" or larger (minimum 14)
+   - Ensure proper spacing: at least 20px between elements
+   - Numbers and labels should NOT overlap
+   - Use clear, readable fonts
+
+4. SVG QUALITY (if generating SVG):
+   - Use proper spacing between all elements
+   - Text elements should have: font-size="16" or larger, font-family="Arial, sans-serif"
+   - Ensure labels are positioned with adequate padding (at least 10px from shapes)
+   - Use stroke-width="2" or larger for visibility
+   - Add proper viewBox and width/height attributes
+
+5. ACCURACY:
+   - All measurements, angles, and labels must exactly match the question
+   - Verify all relationships are correctly represented
+
+${lastValidation && !lastValidation.isValid ? `\nPrevious attempt had issues:\n${lastValidation.issues.join('\n')}\n\nCorrections needed:\n${lastValidation.corrections || 'Please address the issues above.'}\n\nGenerate an improved version that addresses ALL issues:` : ''}
 
 Respond in JSON format:
 {
   "type": "graph" | "table" | "diagram" | "chart" | "image",
-  "description": "detailed description of the visual",
+  "description": "concise description of what the visual shows (NOT a repeat of the question or task). Only describe the visual elements, labels, and measurements shown.",
   "data": { /* structured data if applicable */ },
-  "svg": "SVG code if applicable"
+  "svg": "SVG code with proper sizing (viewBox 0 0 600 600 or larger), clear labels (font-size 16+), and adequate spacing between elements"
 }`;
 
     return prompt;

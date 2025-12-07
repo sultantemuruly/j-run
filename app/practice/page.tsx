@@ -15,16 +15,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 export default function PracticePage() {
-  const [selectedSection, setSelectedSection] = useState<string>('');
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [selectedSubtopics, setSelectedSubtopics] = useState<string[]>([]);
-  const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>([]);
-
-  const sections = [
-    { id: 'reading-writing', label: 'Reading & Writing', icon: BookOpen },
-    { id: 'math', label: 'Math', icon: Target },
-  ];
-
+  // Define topics, subtopics, and difficulties first (needed for initialization)
   const topics = {
     'reading-writing': [
       'Craft and Structure',
@@ -95,6 +86,22 @@ export default function PracticePage() {
 
   const difficulties = ['Easy', 'Medium', 'Hard'];
 
+  // Initialize with Reading & Writing selected and all options pre-selected
+  const initialSection = 'reading-writing';
+  const initialTopics = topics[initialSection] || [];
+  const initialSubtopics = initialTopics.flatMap(topic => subtopics[topic] || []);
+  const initialDifficulties = [...difficulties];
+
+  const [selectedSection, setSelectedSection] = useState<string>(initialSection);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(initialTopics);
+  const [selectedSubtopics, setSelectedSubtopics] = useState<string[]>(initialSubtopics);
+  const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>(initialDifficulties);
+
+  const sections = [
+    { id: 'reading-writing', label: 'Reading & Writing', icon: BookOpen },
+    { id: 'math', label: 'Math', icon: Target },
+  ];
+
   const handleStartPractice = () => {
     if (!selectedSection || selectedTopics.length === 0 || selectedDifficulties.length === 0) {
       return;
@@ -160,7 +167,7 @@ export default function PracticePage() {
               </Link>
               <Link 
                 href="/" 
-                className="inline-flex items-center text-gray-600 hover:text-gray-900 text-sm"
+                className="inline-flex items-center text-gray-800 hover:text-gray-900 font-medium text-sm transition-colors"
               >
                 ← Back to Dashboard
               </Link>
@@ -170,7 +177,7 @@ export default function PracticePage() {
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-2">
             Practice
           </h1>
-          <p className="text-gray-600 text-lg">
+          <p className="text-gray-800 text-lg font-medium">
             Customize your practice session or take a full-length adaptive test
           </p>
         </div>
@@ -239,7 +246,7 @@ export default function PracticePage() {
             </div>
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Custom Practice</h2>
-              <p className="text-gray-600 text-sm">
+              <p className="text-gray-800 text-sm font-medium">
                 Select specific topics and question types to focus on
               </p>
             </div>
@@ -248,7 +255,7 @@ export default function PracticePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             {/* Section Filter */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
+              <label className="block text-sm font-bold text-gray-900 mb-3">
                 Section
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -259,13 +266,16 @@ export default function PracticePage() {
                     <button
                       key={section.id}
                       onClick={() => {
-                        setSelectedSection(section.id);
-                        // Pre-select all topics for the selected section
-                        const sectionTopics = topics[section.id as keyof typeof topics] || [];
-                        setSelectedTopics([...sectionTopics]);
-                        // Pre-select all subtopics for all topics in the section
-                        const allSubtopics = sectionTopics.flatMap(topic => subtopics[topic] || []);
-                        setSelectedSubtopics([...allSubtopics]);
+                        // Only allow changing section if it's different
+                        if (selectedSection !== section.id) {
+                          setSelectedSection(section.id);
+                          // Pre-select all topics for the selected section
+                          const sectionTopics = topics[section.id as keyof typeof topics] || [];
+                          setSelectedTopics([...sectionTopics]);
+                          // Pre-select all subtopics for all topics in the section
+                          const allSubtopics = sectionTopics.flatMap(topic => subtopics[topic] || []);
+                          setSelectedSubtopics([...allSubtopics]);
+                        }
                       }}
                       className={`p-4 rounded-xl border-2 transition-all duration-200 ${
                         isSelected
@@ -273,8 +283,8 @@ export default function PracticePage() {
                           : 'border-gray-200 hover:border-gray-300 bg-white'
                       }`}
                     >
-                      <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
-                      <p className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+                      <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-blue-700' : 'text-gray-500'}`} />
+                      <p className={`text-sm font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
                         {section.label}
                       </p>
                     </button>
@@ -285,8 +295,8 @@ export default function PracticePage() {
 
             {/* Topic Filter */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Topic {selectedSection && <span className="text-gray-400">(Optional)</span>}
+              <label className="block text-sm font-bold text-gray-900 mb-3">
+                Topic {selectedSection && <span className="text-gray-600 font-normal">(Optional)</span>}
               </label>
               <div className="grid grid-cols-1 gap-2">
                 {selectedSection && topics[selectedSection as keyof typeof topics] ? (
@@ -297,6 +307,10 @@ export default function PracticePage() {
                         key={topic}
                         onClick={() => {
                           if (isSelected) {
+                            // Prevent deselecting if it's the last topic
+                            if (selectedTopics.length <= 1) {
+                              return; // Must have at least one topic selected
+                            }
                             // Deselect topic
                             setSelectedTopics(selectedTopics.filter(t => t !== topic));
                             // Remove subtopics that belong to this topic
@@ -312,8 +326,8 @@ export default function PracticePage() {
                         }}
                         className={`p-3 rounded-lg border text-left transition-all duration-200 ${
                           isSelected
-                            ? 'border-purple-500 bg-purple-50 text-purple-900'
-                            : 'border-gray-200 hover:border-gray-300 bg-white text-gray-700'
+                            ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold'
+                            : 'border-gray-300 hover:border-gray-400 bg-white text-gray-900 font-medium'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -328,8 +342,8 @@ export default function PracticePage() {
                     );
                   })
                 ) : (
-                  <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 text-center">
-                    <p className="text-sm text-gray-500">Select a section first</p>
+                  <div className="p-4 rounded-lg border border-gray-300 bg-gray-50 text-center">
+                    <p className="text-sm text-gray-700 font-medium">Select a section first</p>
                   </div>
                 )}
               </div>
@@ -337,8 +351,8 @@ export default function PracticePage() {
 
             {/* Difficulty Filter - Bottom Left */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Difficulty <span className="text-gray-400">(Optional)</span>
+              <label className="block text-sm font-bold text-gray-900 mb-3">
+                Difficulty <span className="text-gray-600 font-normal">(Optional)</span>
               </label>
               <div className="grid grid-cols-3 gap-3">
                 {difficulties.map((difficulty) => {
@@ -384,6 +398,10 @@ export default function PracticePage() {
                       key={difficulty}
                       onClick={() => {
                         if (isSelected) {
+                          // Prevent deselecting if it's the last difficulty
+                          if (selectedDifficulties.length <= 1) {
+                            return; // Must have at least one difficulty selected
+                          }
                           setSelectedDifficulties(selectedDifficulties.filter(d => d !== difficulty));
                         } else {
                           setSelectedDifficulties([...selectedDifficulties, difficulty]);
@@ -397,7 +415,7 @@ export default function PracticePage() {
                         </div>
                       )}
                       <Zap className={`w-4 h-4 mb-1 mx-auto ${classes.icon}`} />
-                      <p className={`text-xs font-medium ${classes.text}`}>
+                      <p className={`text-xs font-bold ${classes.text}`}>
                         {difficulty}
                       </p>
                     </button>
@@ -408,8 +426,8 @@ export default function PracticePage() {
 
             {/* Subtopic Filter (for both Reading & Writing and Math sections) - Bottom Right */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Subtopic <span className="text-gray-400">(Optional)</span>
+              <label className="block text-sm font-bold text-gray-900 mb-3">
+                Subtopic <span className="text-gray-600 font-normal">(Optional)</span>
               </label>
               <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
                 {selectedSection && selectedTopics.length > 0 ? (
@@ -421,6 +439,10 @@ export default function PracticePage() {
                           key={`${topic}-${subtopic}`}
                           onClick={() => {
                             if (isSelected) {
+                              // Prevent deselecting if it's the last subtopic
+                              if (selectedSubtopics.length <= 1) {
+                                return; // Must have at least one subtopic selected
+                              }
                               setSelectedSubtopics(selectedSubtopics.filter(st => st !== subtopic));
                             } else {
                               setSelectedSubtopics([...selectedSubtopics, subtopic]);
@@ -428,14 +450,14 @@ export default function PracticePage() {
                           }}
                           className={`w-full p-3 rounded-lg border text-left transition-all duration-200 ${
                             isSelected
-                              ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
-                              : 'border-gray-200 hover:border-gray-300 bg-white text-gray-700'
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold'
+                              : 'border-gray-300 hover:border-gray-400 bg-white text-gray-900 font-medium'
                           }`}
                         >
                           <div className="flex items-center justify-between">
     <div>
-                              <p className="text-xs text-gray-500 mb-0.5">{topic}</p>
-                              <p className="text-sm font-medium">{subtopic}</p>
+                              <p className="text-xs text-gray-700 mb-0.5 font-medium">{topic}</p>
+                              <p className="text-sm font-semibold">{subtopic}</p>
                             </div>
                             {isSelected && (
                               <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
@@ -448,8 +470,8 @@ export default function PracticePage() {
                     })
                   )
                 ) : (
-                  <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 text-center min-h-[48px] flex items-center justify-center">
-                    <p className="text-sm text-gray-500">
+                  <div className="p-4 rounded-lg border border-gray-300 bg-gray-50 text-center min-h-[48px] flex items-center justify-center">
+                    <p className="text-sm text-gray-700 font-medium">
                       {selectedSection ? 'Select a topic first' : 'Select a section first'}
                     </p>
                   </div>
@@ -464,14 +486,14 @@ export default function PracticePage() {
               onClick={handleStartPractice}
               size="lg"
               className="w-full md:w-auto bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
-              disabled={!selectedSection}
+              disabled={!selectedSection || selectedTopics.length === 0 || selectedDifficulties.length === 0}
             >
               <Play className="w-5 h-5 mr-2" />
               Start Custom Practice
             </Button>
-            {!selectedSection && (
-              <p className="text-sm text-gray-500 mt-2">
-                Please select a section to begin
+            {(!selectedSection || selectedTopics.length === 0 || selectedDifficulties.length === 0) && (
+              <p className="text-sm text-gray-700 font-medium mt-2">
+                Please ensure at least one section, topic, and difficulty is selected
               </p>
             )}
           </div>

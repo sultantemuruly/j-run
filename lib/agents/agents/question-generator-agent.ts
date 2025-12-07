@@ -281,6 +281,17 @@ Based on the STRUCTURAL patterns you analyzed from the examples (NOT the specifi
   * Do NOT say "this simplifies to X" unless it actually simplifies to X
   * Do NOT make up intermediate steps or results
   * The explanation must be mathematically sound and lead to the correct answer
+  * USE LaTeX FORMAT for ALL mathematical expressions:
+    - Inline math: Use $...$ for fractions, variables, operations (e.g., $\\frac{9}{3} = 3$, $x^2$, $y_1 - y_2$)
+    - Block math: Use $$...$$ for equations that should be on their own line
+    - Examples: 
+      * Fractions: $\\frac{a}{b}$ or $\\frac{y_2 - y_1}{x_2 - x_1}$
+      * Exponents: $x^2$, $3^n$
+      * Subscripts: $x_1$, $y_2$
+      * Operations: $\\sqrt{x}$, $\\pm$, $\\times$, $\\div$
+      * Equations: $y = mx + b$, $ax^2 + bx + c = 0$
+      * Inequalities: $x > 0$, $y \\leq 5$
+    - Always use LaTeX for: fractions, divisions, multiplications, exponents, roots, variables, equations, inequalities, and any mathematical notation
 - If the question needs a visual (graph, table, diagram), set needsVisual to true
 - Provide a detailed visualDescription following the pattern of how visuals are described in examples
 `}
@@ -304,12 +315,12 @@ ${lastValidation && !lastValidation.isValid ? `\nPrevious attempt had issues:\n$
 
 Respond in JSON format:
 {
-  ${isReadingWriting ? `"passage": "the reading passage(s). For single passage: just the passage text. For Cross-Text Connections: format as 'Passage 1: [text]\\n\\nPassage 2: [text]' with clear separation",\n  ` : ''}"question": "the question text${isReadingWriting ? ' (which references the passage)' : ''}",
-  "answerChoices": ["choice text without letter prefix", "choice text without letter prefix", "choice text without letter prefix", "choice text without letter prefix"],
+  ${isReadingWriting ? `"passage": "the reading passage(s). For single passage: just the passage text. For Cross-Text Connections: format as 'Passage 1: [text]\\n\\nPassage 2: [text]' with clear separation",\n  ` : ''}"question": "the question text${isReadingWriting ? ' (which references the passage)' : ''}${!isReadingWriting ? '. For MATH: Use LaTeX format ($...$ for inline math) for all mathematical expressions in the question.' : ''}",
+  "answerChoices": ["choice text without letter prefix", "choice text without letter prefix", "choice text without letter prefix", "choice text without letter prefix"]${!isReadingWriting ? '. For MATH: Use LaTeX format ($...$ for inline math) for all mathematical expressions in answer choices.' : ''},
   "correctAnswer": "A" | "B" | "C" | "D",
-  "explanation": "brief explanation of why the correct answer is correct${isReadingWriting ? ' (reference the passage)' : ''}. ${!isReadingWriting ? 'For MATH questions: The explanation MUST show the actual mathematical steps and calculations. Do NOT make up or hallucinate calculations. Show real math work that leads to the answer. Verify all arithmetic is correct.' : 'MUST verify that the marked correctAnswer is actually correct.'}",
+  "explanation": "brief explanation of why the correct answer is correct${isReadingWriting ? ' (reference the passage)' : ''}. ${!isReadingWriting ? 'For MATH questions: The explanation MUST show the actual mathematical steps and calculations. Do NOT make up or hallucinate calculations. Show real math work that leads to the answer. Verify all arithmetic is correct. Use LaTeX format ($...$ for inline math) for ALL mathematical expressions: fractions ($\\frac{a}{b}$), operations, variables, equations, etc.' : 'MUST verify that the marked correctAnswer is actually correct.'}",
   "needsVisual": boolean,
-  "visualDescription": "description of visual needed (if needsVisual is true). ${isReadingWriting ? 'For Reading & Writing, this might be a chart/table/graph referenced in the passage.' : 'For Math, describe the graph/table/diagram needed.'}"
+  "visualDescription": "description of visual needed (if needsVisual is true). ${isReadingWriting ? 'For Reading & Writing, this might be a chart/table/graph referenced in the passage.' : 'For Math: Describe ALL elements needed - include ALL angles (especially 90°, 60°, 30°), ALL measurements, ALL relationships. Be specific and complete. The visual must contain ALL information needed to solve the problem.'}"
 }
 
 IMPORTANT: 
