@@ -1,7 +1,8 @@
 'use client';
 
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, MessageCircle } from 'lucide-react';
 import { LatexRenderer } from './latex-renderer';
+import { Button } from '@/components/ui/button';
 
 export interface QuestionData {
   question: {
@@ -37,6 +38,7 @@ interface QuestionDisplayProps {
   onAnswer: (answer: 'A' | 'B' | 'C' | 'D') => void;
   selectedAnswer?: 'A' | 'B' | 'C' | 'D';
   showResult?: boolean;
+  onOpenChat?: () => void;
 }
 
 export default function QuestionDisplay({
@@ -44,13 +46,15 @@ export default function QuestionDisplay({
   onAnswer,
   selectedAnswer,
   showResult,
+  onOpenChat,
 }: QuestionDisplayProps) {
   const { question, visual, metadata } = questionData;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 md:p-8">
-      {/* Metadata */}
-      <div className="flex flex-wrap gap-2 mb-6 text-sm">
+      {/* Header with Chat Button */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap gap-2 text-sm">
         <span className="px-3 py-1 bg-blue-100 text-blue-900 rounded-full font-semibold">
           {metadata.section}
         </span>
@@ -65,6 +69,18 @@ export default function QuestionDisplay({
         <span className="px-3 py-1 bg-gray-100 text-gray-900 rounded-full font-semibold">
           {metadata.difficulty}
         </span>
+        </div>
+        {onOpenChat && (
+          <Button
+            onClick={onOpenChat}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 hover:bg-gradient-to-r hover:from-blue-500 hover:to-cyan-500 hover:text-white transition-all"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span className="hidden sm:inline">Get Help</span>
+          </Button>
+        )}
       </div>
 
       {/* Passage (for Reading & Writing questions) */}

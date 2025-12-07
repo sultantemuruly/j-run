@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import QuestionDisplay, { QuestionLoading, QuestionData } from '@/components/practice/question-display';
+import { QuestionChat } from '@/components/practice/question-chat';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -20,6 +21,7 @@ export default function PracticeSessionPage() {
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState<boolean | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // For custom practice
   const section = searchParams.get('section');
@@ -245,6 +247,13 @@ export default function PracticeSessionPage() {
               selectedAnswer={selectedAnswer}
               showResult={showResult}
               isCorrect={isCorrect}
+              onOpenChat={() => setIsChatOpen(true)}
+            />
+            
+            <QuestionChat
+              questionData={questionData}
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
             />
 
             {/* Navigation */}

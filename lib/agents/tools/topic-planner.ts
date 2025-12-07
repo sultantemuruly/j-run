@@ -46,7 +46,7 @@ export const topicPlannerTool = {
     topic: string;
     subtopic: string;
     difficulty: string;
-  }): Promise<{ success: boolean; plan: TopicPlan; error?: string }> {
+  }): Promise<{ success: boolean; plan: TopicPlan; error?: string }> => {
     try {
       // Generate topic-specific plan based on topic and subtopic
       const plan = generateTopicPlan(args.topic, args.subtopic, args.difficulty);
