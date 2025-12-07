@@ -29,11 +29,11 @@ export interface VisualGenerationOptions {
  */
 export class VisualGeneratorAgent extends BaseAgent {
   constructor() {
-    super('gpt-4o');
+    super('gpt-4o-mini'); // OPTIMIZATION: Switched to mini for 33-100x cost reduction
   }
 
   async execute(options: VisualGenerationOptions): Promise<GeneratedVisual> {
-    const maxIterations = options.maxIterations || 3;
+    const maxIterations = options.maxIterations || 2; // OPTIMIZATION: Reduced from 3 to 2
     let iteration = 0;
     let lastValidation: VisualValidationResult | null = null;
 
@@ -59,9 +59,42 @@ export class VisualGeneratorAgent extends BaseAgent {
       // Handle tool calls if any
       let finalResponse = response;
       if (response.choices[0].message.tool_calls) {
-        const toolMessages = await this.handleToolCalls(response.choices[0].message.tool_calls);
-        // Include the assistant message with tool_calls before the tool messages
-        finalResponse = await this.chatCompletion(
+        try {
+          const toolMessages = await this.handleToolCalls(response.choices[0].message.tool_calls);
+          // Include the assistant message with tool_calls before the tool messages
+          finalResponse = await this.chatCompletion(
+            [
+              {
+                role: 'system',
+                content: 'You are an expert at creating educational visuals for SAT questions. Generate clear, accurate, and appropriate visuals. You MUST respond with valid JSON only, no markdown, no code blocks, just the raw JSON object.',
+              },
+              {
+                role: 'user',
+                content: prompt,
+              },
+              {
+                role: 'assistant',
+                content: response.choices[0].message.content || null,
+                tool_calls: response.choices[0].message.tool_calls,
+              },
+              ...toolMessages,
+            ],
+            undefined,
+            undefined,
+            { type: 'json_object' }
+          );
+        } catch (toolError) {
+          // If tool calls fail, try to continue with the original response
+          console.warn('Tool call handling failed, using original response:', toolError);
+          // finalResponse is already set to response, so continue
+        }
+      }
+
+      const content = finalResponse.choices[0].message.content;
+      if (!content) {
+        // If no content after tool calls, try one more time without tools
+        console.warn('No content after tool calls, retrying without tools...');
+        const retryResponse = await this.chatCompletion(
           [
             {
               role: 'system',
@@ -71,22 +104,17 @@ export class VisualGeneratorAgent extends BaseAgent {
               role: 'user',
               content: prompt,
             },
-            {
-              role: 'assistant',
-              content: response.choices[0].message.content || null,
-              tool_calls: response.choices[0].message.tool_calls,
-            },
-            ...toolMessages,
           ],
-          undefined,
-          undefined,
+          [],
+          'none',
           { type: 'json_object' }
         );
-      }
-
-      const content = finalResponse.choices[0].message.content;
-      if (!content) {
-        throw new Error('No response from Visual Generator Agent');
+        
+        if (!retryResponse.choices[0].message.content) {
+          throw new Error('No response from Visual Generator Agent after retry');
+        }
+        
+        finalResponse = retryResponse;
       }
 
       let generatedVisual: GeneratedVisual;
@@ -207,7 +235,31 @@ MANDATORY REQUIREMENTS:
    - All measurements, angles, and labels must exactly match the question
    - Verify all relationships are correctly represented
 
-${lastValidation && !lastValidation.isValid ? `\nPrevious attempt had issues:\n${lastValidation.issues.join('\n')}\n\nCorrections needed:\n${lastValidation.corrections || 'Please address the issues above.'}\n\nGenerate an improved version that addresses ALL issues:` : ''}
+${lastValidation && (!lastValidation.isValid || lastValidation.score < 0.8) ? `
+CRITICAL: Previous visual attempt FAILED validation. You MUST fix ALL issues before generating a new visual.
+
+VALIDATION SCORE: ${lastValidation.score}/1.0 (Target: 0.8+)
+${lastValidation.score < 0.8 ? '⚠️ SCORE TOO LOW - Visual needs significant improvement' : ''}
+
+ISSUES FOUND:
+${lastValidation.issues.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}
+
+DETAILED CORRECTIONS REQUIRED:
+${lastValidation.corrections || 'Please address all issues listed above.'}
+
+CRITICAL INSTRUCTIONS FOR REGENERATION:
+1. Read EACH issue carefully and understand what went wrong
+2. Address EVERY issue listed above - do not skip any
+3. Follow the corrections EXACTLY as specified
+4. Make sure your new visual description addresses ALL the problems from the previous attempt
+5. Double-check that your new visual would NOT have the same issues
+6. Ensure ALL critical information (angles, measurements, relationships) is included
+
+IMPORTANT: This is attempt ${iteration + 1}. The previous attempt had ${lastValidation.issues.length} issue(s). Your new visual MUST be significantly improved. Do not make the same mistakes.
+
+Generate a COMPLETELY REVISED visual that fixes ALL the issues above:
+` : ''}
+${lastValidation && lastValidation.isValid && lastValidation.score >= 0.8 ? `\n✅ Previous attempt passed validation (score: ${lastValidation.score}). Continue with this quality level.\n` : ''}
 
 Respond in JSON format:
 {

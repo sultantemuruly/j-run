@@ -61,14 +61,30 @@ export async function POST(request: Request) {
       success: true,
       data: result,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating question:', error);
+    
+    // Provide user-friendly error messages
+    let errorMessage = 'Failed to generate question';
+    let statusCode = 500;
+    
+    if (error?.name === 'QuotaExceededError' || error?.message?.includes('quota')) {
+      errorMessage = 'OpenAI API quota exceeded. Please check your billing and plan details. The system requires API credits to generate questions.';
+      statusCode = 503; // Service Unavailable
+    } else if (error?.name === 'RateLimitError' || error?.message?.includes('rate limit')) {
+      errorMessage = 'OpenAI API rate limit exceeded. Please wait a moment and try again.';
+      statusCode = 429; // Too Many Requests
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
     return NextResponse.json(
       {
-        error: 'Failed to generate question',
+        error: errorMessage,
         details: error instanceof Error ? error.message : 'Unknown error',
+        type: error?.name || 'UnknownError',
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

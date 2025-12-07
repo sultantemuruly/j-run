@@ -4,6 +4,7 @@ import { VisualGeneratorAgent, GeneratedVisual } from '../agents/visual-generato
 import { CheckingAgent } from '../agents/checking-agent';
 import { VisualCheckingAgent } from '../agents/visual-checking-agent';
 import { ValidationResult } from '../tools/question-validator';
+import { folderToDisplayName, classifyQuestionTopic } from '@/lib/utils/topic-classifier';
 
 export interface QuestionGenerationRequest {
   section: 'math' | 'reading-and-writing';
@@ -48,21 +49,39 @@ export class QuestionOrchestrator {
   async generateQuestion(request: QuestionGenerationRequest): Promise<GeneratedQuestionResult> {
     const startTime = Date.now();
     let iterations = 0;
-    const maxIterations = 5;
+    const maxIterations = 3; // OPTIMIZATION: Reduced from 5 to 3 to save costs
 
     try {
       // Step 1: Retriever Agent - Get context and examples
       console.log('Step 1: Retrieving context...');
-      const context = await this.retrieverAgent.execute(
-        request.customContext || `Generate a ${request.difficulty} ${request.section} question about ${request.topic}${request.subtopic ? `, specifically ${request.subtopic}` : ''}`,
-        {
-          section: request.section,
-          topic: request.topic,
-          subtopic: request.subtopic,
-          difficulty: request.difficulty,
-          maxExamples: 5,
+      let context;
+      try {
+        context = await this.retrieverAgent.execute(
+          request.customContext || `Generate a ${request.difficulty} ${request.section} question about ${request.topic}${request.subtopic ? `, specifically ${request.subtopic}` : ''}`,
+          {
+            section: request.section,
+            topic: request.topic,
+            subtopic: request.subtopic,
+            difficulty: request.difficulty,
+            maxExamples: 5,
+          }
+        );
+      } catch (error: any) {
+        // If RAG retrieval fails (e.g., quota exceeded), continue with minimal context
+        if (error?.name === 'QuotaExceededError' || error?.message?.includes('quota')) {
+          console.warn('RAG system unavailable due to API quota. Continuing with minimal context.');
+          context = {
+            rules: 'Follow standard SAT question format and difficulty guidelines.',
+            explanations: 'Ensure questions test the specified skills appropriately.',
+            instructions: `Generate a ${request.difficulty} ${request.section} question about ${request.topic}${request.subtopic ? `, specifically ${request.subtopic}` : ''}. Follow SAT format and standards.`,
+            examples: [],
+            sourceChunks: [],
+            visualExamples: [],
+          };
+        } else {
+          throw error;
         }
-      );
+      }
 
       // Step 2: Question Generator Agent - Generate question
       console.log('Step 2: Generating question...');
@@ -70,10 +89,26 @@ export class QuestionOrchestrator {
       let questionValid = false;
       let questionIterations = 0;
       let lastValidation: ValidationResult | null = null;
+      let topicMismatchCount = 0; // Track consecutive topic mismatches
 
       while (!questionValid && questionIterations < maxIterations) {
         questionIterations++;
         iterations++;
+
+        // If we've had multiple topic mismatches, enhance the validation feedback
+        let enhancedValidation = lastValidation;
+        if (lastValidation && topicMismatchCount > 0) {
+          // Add extra emphasis on topic requirements
+          const topicMismatchIssues = lastValidation.issues.filter(issue => 
+            typeof issue === 'string' && issue.includes('TOPIC MISMATCH')
+          );
+          if (topicMismatchIssues.length > 0) {
+            enhancedValidation = {
+              ...lastValidation,
+              corrections: `${lastValidation.corrections || ''}\n\n⚠️ REPEATED TOPIC MISMATCH DETECTED (attempt ${questionIterations}). You MUST generate a question that matches the requested topic "${request.topic}"${request.subtopic ? `, subtopic "${request.subtopic}"` : ''}. Review the topic requirements carefully and ensure your question clearly belongs to this topic category.`,
+            };
+          }
+        }
 
         // Pass the last validation feedback to the generator so it can improve
         generatedQuestion = await this.questionGeneratorAgent.execute({
@@ -83,7 +118,7 @@ export class QuestionOrchestrator {
           difficulty: request.difficulty,
           context,
           maxIterations: 2, // Reduced since orchestrator handles the loop
-          externalValidation: lastValidation, // Pass feedback from previous iteration
+          externalValidation: enhancedValidation, // Pass feedback from previous iteration
         });
 
         // Step 3: Checking Agent - Validate question
@@ -98,6 +133,31 @@ export class QuestionOrchestrator {
           },
           context.rules
         );
+
+        // Track topic mismatches
+        const hasTopicMismatch = validation.issues.some(issue => 
+          typeof issue === 'string' && issue.includes('TOPIC MISMATCH')
+        );
+        if (hasTopicMismatch) {
+          topicMismatchCount++;
+          
+          // If we have multiple topic mismatches, enhance the validation feedback with stronger guidance
+          if (topicMismatchCount >= 2) {
+            const topicMismatchIssues = validation.issues.filter(issue => 
+              typeof issue === 'string' && issue.includes('TOPIC MISMATCH')
+            );
+            
+            // Extract what topic it's being classified as
+            const actualTopicMatch = validation.issues.find(issue => 
+              typeof issue === 'string' && issue.includes('Actual:')
+            );
+            
+            // Add very explicit guidance
+            validation.corrections = `${validation.corrections || ''}\n\n🚨 CRITICAL TOPIC MISMATCH (Attempt ${questionIterations}):\nThe question is being classified as a DIFFERENT topic than requested.\n\n${actualTopicMatch || 'The question does not match the requested topic.'}\n\nYou MUST completely change your approach:\n1. STOP using words/phrases that match "${validation.issues.find((i: any) => typeof i === 'string' && i.includes('Actual:'))?.split('Actual:')[1]?.trim() || 'the wrong topic'}"\n2. START using words/phrases that clearly match "${request.topic}${request.subtopic ? ` > ${request.subtopic}` : ''}"\n3. Review the topic-specific requirements carefully\n4. Generate a COMPLETELY DIFFERENT question that clearly belongs to the requested topic\n\nThis is attempt ${questionIterations}. You MUST fix the topic mismatch NOW.`;
+          }
+        } else {
+          topicMismatchCount = 0; // Reset if topic matches
+        }
 
         // If validator found the correct answer was wrong, fix it
         if (validation.correctedAnswer && validation.correctedAnswer !== generatedQuestion.correctAnswer) {
@@ -119,17 +179,35 @@ export class QuestionOrchestrator {
           lastValidation = validation;
         }
 
-        if (lastValidation.isValid && lastValidation.score >= 0.8) {
+        // Stricter validation: must be valid, correct answer, AND score >= 0.8
+        const isHighQuality = lastValidation.isValid && lastValidation.score >= 0.8;
+        
+        if (isHighQuality) {
+          console.log(`✅ Question passed validation with score: ${lastValidation.score}`);
           questionValid = true;
-        } else if (lastValidation.shouldRegenerate && questionIterations < maxIterations) {
-          console.log(`Question validation failed (score: ${lastValidation.score}). Issues: ${lastValidation.issues.join('; ')}`);
-          console.log(`Corrections needed: ${lastValidation.corrections || 'Please address the issues above'}`);
+        } else if (questionIterations < maxIterations) {
+          console.log(`❌ Question validation failed (score: ${lastValidation.score}, valid: ${lastValidation.isValid})`);
+          console.log(`Issues found: ${lastValidation.issues.length}`);
+          lastValidation.issues.forEach((issue, i) => {
+            console.log(`  ${i + 1}. ${issue}`);
+          });
+          console.log(`\nCorrections needed:\n${lastValidation.corrections || 'Please address the issues above'}\n`);
+          console.log(`🔄 Regenerating with feedback (attempt ${questionIterations + 1}/${maxIterations})...`);
           // Continue loop - validation feedback will be passed to generator in next iteration
           continue;
         } else {
-          // Accept the question even if not perfect (after max iterations)
-          console.warn(`Question validation score: ${lastValidation.score}. Accepting after ${questionIterations} iterations.`);
-          questionValid = true;
+          // After max iterations, only accept if score is at least 0.7
+          if (lastValidation.score >= 0.7) {
+            console.warn(`⚠️ Question validation score: ${lastValidation.score} (below 0.8 target). Accepting after ${questionIterations} iterations.`);
+            questionValid = true;
+          } else {
+            console.error(`❌ Question validation score too low: ${lastValidation.score}. Rejecting after ${questionIterations} iterations.`);
+            // Stringify issues properly to avoid [object Object]
+            const issuesString = lastValidation.issues
+              .map(issue => typeof issue === 'string' ? issue : JSON.stringify(issue))
+              .join('; ');
+            throw new Error(`Failed to generate valid question after ${maxIterations} iterations. Final score: ${lastValidation.score}, Issues: ${issuesString}`);
+          }
         }
       }
 
@@ -230,28 +308,58 @@ export class QuestionOrchestrator {
             }
           );
 
-          if (visualValidation.isValid && visualValidation.score >= 0.8) {
+          // Stricter validation: must be valid AND score >= 0.8
+          const isHighQuality = visualValidation.isValid && visualValidation.score >= 0.8;
+          
+          if (isHighQuality) {
+            console.log(`✅ Visual passed validation with score: ${visualValidation.score}`);
             visualValid = true;
-          } else if (visualValidation.shouldRegenerate && visualIterations < maxIterations) {
-            console.log(`Visual validation failed (score: ${visualValidation.score}). Regenerating...`);
+          } else if (visualIterations < maxIterations) {
+            console.log(`❌ Visual validation failed (score: ${visualValidation.score}, valid: ${visualValidation.isValid})`);
+            console.log(`Issues found: ${visualValidation.issues.length}`);
+            visualValidation.issues.forEach((issue, i) => {
+              console.log(`  ${i + 1}. ${issue}`);
+            });
+            console.log(`\nCorrections needed:\n${visualValidation.corrections || 'Please address the issues above'}\n`);
+            console.log(`🔄 Regenerating visual with feedback (attempt ${visualIterations + 1}/${maxIterations})...`);
             continue;
           } else {
-            console.warn(`Visual validation score: ${visualValidation.score}. Accepting after ${visualIterations} iterations.`);
-            visualValid = true;
+            // After max iterations, only accept if score is at least 0.7
+            if (visualValidation.score >= 0.7) {
+              console.warn(`⚠️ Visual validation score: ${visualValidation.score} (below 0.8 target). Accepting after ${visualIterations} iterations.`);
+              visualValid = true;
+            } else {
+              console.error(`❌ Visual validation score too low: ${visualValidation.score}. Marking as needing regeneration.`);
+              if (generatedVisual) {
+                generatedVisual.needsRegeneration = true;
+              }
+              visualValid = true; // Accept but mark for regeneration
+            }
           }
         }
       }
 
       const generationTime = Date.now() - startTime;
 
+      // Map folder names to display names for metadata
+      const displayTopic = folderToDisplayName(request.topic);
+      
+      // Use the actual subtopic from request (already in display format)
+      // If subtopic was provided, use it; otherwise try to extract from question
+      let displaySubtopic = request.subtopic;
+      if (!displaySubtopic && generatedQuestion.question) {
+        const classification = classifyQuestionTopic(generatedQuestion.question, generatedQuestion.passage);
+        displaySubtopic = classification.subtopic;
+      }
+
       return {
         question: generatedQuestion,
         visual: generatedVisual,
         metadata: {
-          section: request.section,
-          topic: request.topic,
-          subtopic: request.subtopic,
-          difficulty: request.difficulty,
+          section: request.section === 'reading-and-writing' ? 'reading-writing' : request.section,
+          topic: displayTopic, // Use display name, not folder name
+          subtopic: displaySubtopic, // Use actual subtopic
+          difficulty: request.difficulty.charAt(0).toUpperCase() + request.difficulty.slice(1), // Capitalize
           generationTime,
           iterations,
         },

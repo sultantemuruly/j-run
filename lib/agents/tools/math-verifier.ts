@@ -65,7 +65,7 @@ Respond in JSON format:
     });
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini', // OPTIMIZATION: Switched to mini for 33-100x cost reduction
       messages: [
         {
           role: 'system',

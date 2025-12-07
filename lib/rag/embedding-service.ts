@@ -28,8 +28,34 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     });
     
     return response.data.map(item => item.embedding);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating embeddings:', error);
+    
+    // Check error code/message more carefully
+    const errorCode = error?.code || error?.error?.code || '';
+    const errorMessage = error?.message || error?.error?.message || '';
+    const statusCode = error?.status || error?.response?.status || error?.statusCode;
+    
+    // Handle quota errors specifically - only if explicitly insufficient_quota
+    if (errorCode === 'insufficient_quota' || errorMessage?.toLowerCase().includes('insufficient_quota')) {
+      const quotaError = new Error(
+        'OpenAI API quota exceeded. Please check your OpenAI billing and plan details. ' +
+        'The RAG system requires embeddings to retrieve context from your documents. ' +
+        'Please add credits to your OpenAI account or upgrade your plan.'
+      );
+      quotaError.name = 'QuotaExceededError';
+      throw quotaError;
+    }
+    
+    // Handle rate limit errors (429 but NOT insufficient_quota)
+    if (statusCode === 429 && errorCode !== 'insufficient_quota' && !errorMessage?.toLowerCase().includes('insufficient_quota')) {
+      const rateLimitError = new Error(
+        'OpenAI API rate limit exceeded. Please wait a moment and try again.'
+      );
+      rateLimitError.name = 'RateLimitError';
+      throw rateLimitError;
+    }
+    
     throw error;
   }
 }

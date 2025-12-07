@@ -108,11 +108,12 @@ export default function PracticePage() {
     }
 
     // Build query params
+    // Use pipe (|) as delimiter for subtopics since they can contain commas
     const params = new URLSearchParams({
       mode: 'custom',
       section: selectedSection,
       topics: selectedTopics.join(','),
-      subtopics: selectedSubtopics.join(','),
+      subtopics: selectedSubtopics.join('|'), // Use | instead of , to handle subtopics with commas
       difficulties: selectedDifficulties.join(','),
     });
 

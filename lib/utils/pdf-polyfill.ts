@@ -3,6 +3,89 @@
  * This must be imported BEFORE pdf-parse
  */
 
+// Polyfill AbortController and AbortSignal FIRST (critical for pdf-parse)
+if (typeof globalThis.AbortController === 'undefined') {
+  globalThis.AbortController = class AbortController {
+    signal: AbortSignal;
+    
+    constructor() {
+      this.signal = new AbortSignal();
+    }
+    
+    abort(reason?: any): void {
+      this.signal.aborted = true;
+      this.signal.reason = reason;
+      if (this.signal.onabort) {
+        this.signal.onabort();
+      }
+    }
+  } as any;
+}
+
+if (typeof globalThis.AbortSignal === 'undefined') {
+  globalThis.AbortSignal = class AbortSignal {
+    aborted: boolean = false;
+    reason: any = undefined;
+    onabort: (() => void) | null = null;
+    
+    constructor() {
+      // Ensure it can be called with 'new'
+    }
+    
+    static abort(reason?: any): AbortSignal {
+      const signal = new AbortSignal();
+      signal.aborted = true;
+      signal.reason = reason;
+      return signal;
+    }
+    
+    throwIfAborted(): void {
+      if (this.aborted) {
+        throw new Error('Aborted');
+      }
+    }
+  } as any;
+}
+
+// Polyfill AbortException to fix "cannot be invoked without 'new'" error
+// This is a known issue with pdf-parse - it tries to call AbortException without 'new'
+// Enhanced version that works better with pdf-parse
+if (typeof (globalThis as any).AbortException === 'undefined') {
+  // Create a factory function that works with or without 'new'
+  const AbortExceptionFactory = function AbortException(this: any, message?: string) {
+    if (!(this instanceof AbortExceptionFactory)) {
+      // Called without 'new' - create new instance
+      return new AbortExceptionFactory(message);
+    }
+    // Called with 'new' - normal constructor
+    this.name = 'AbortException';
+    this.message = message || 'Aborted';
+    this.stack = new Error().stack;
+    Object.setPrototypeOf(this, AbortExceptionFactory.prototype);
+  } as any;
+  
+  AbortExceptionFactory.prototype = Object.create(Error.prototype);
+  AbortExceptionFactory.prototype.constructor = AbortExceptionFactory;
+  AbortExceptionFactory.prototype.name = 'AbortException';
+  
+  // Make it callable as a function (for pdf-parse compatibility)
+  const AbortExceptionFunction = function(message?: string) {
+    return new AbortExceptionFactory(message);
+  };
+  Object.setPrototypeOf(AbortExceptionFunction, AbortExceptionFactory);
+  Object.assign(AbortExceptionFunction, AbortExceptionFactory);
+  
+  // Make it available globally in multiple ways for maximum compatibility
+  (globalThis as any).AbortException = AbortExceptionFactory;
+  (globalThis as any).AbortException = AbortExceptionFunction;
+  
+  // Also set on global if it exists
+  if (typeof global !== 'undefined') {
+    (global as any).AbortException = AbortExceptionFactory;
+    (global as any).AbortException = AbortExceptionFunction;
+  }
+}
+
 if (typeof globalThis.DOMMatrix === 'undefined') {
   // More complete DOMMatrix polyfill
   globalThis.DOMMatrix = class DOMMatrix {

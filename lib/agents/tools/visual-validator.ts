@@ -1,8 +1,4 @@
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { getLLMClient } from '@/lib/utils/llm-client';
 
 export interface VisualValidationResult {
   isValid: boolean;
@@ -100,33 +96,76 @@ CRITICAL VALIDATION CHECKS:
    - Should match SAT level standards
    - Not too simple, not overly complex
 
+CRITICAL: Be STRICT in your evaluation. A score below 0.8 means the visual needs significant improvement.
+
+For each issue, provide:
+1. WHAT is wrong (specific element)
+2. WHY it's wrong (reason)
+3. HOW to fix it (specific action with examples if helpful)
+
 Respond in JSON format:
 {
   "isValid": boolean,
-  "issues": ["list of issues if any"],
-  "corrections": "specific instructions for corrections if needed",
+  "issues": ["specific issue with what/why/how format"],
+  "corrections": "detailed, step-by-step instructions for fixing ALL issues. Be SPECIFIC about what needs to change, how to change it, and include examples of correct visual descriptions if helpful.",
   "score": 0.0-1.0,
   "missingInformation": ["list of critical information missing from visual"],
-  "hasDuplicates": boolean
+  "hasDuplicates": boolean,
+  "specificImprovements": {
+    "description": "specific improvements needed for the visual description",
+    "completeness": "what information is missing and how to include it",
+    "clarity": "how to improve clarity and readability",
+    "size": "specific size requirements if not met"
+  }
 }`;
 
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert SAT visual content validator. Always respond with valid JSON.',
-          },
-          {
-            role: 'user',
-            content: validationPrompt,
-          },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.3,
-      });
-
-      const result = JSON.parse(response.choices[0].message.content || '{}');
+      // OPTIMIZATION: Use Gemini for visual validation (cheaper, structured task)
+      const llmClient = getLLMClient();
+      
+      let result: any;
+      try {
+        const response = await llmClient.complete('gemini-pro', {
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert SAT visual content validator. Always respond with valid JSON only, no markdown, no code blocks.',
+            },
+            {
+              role: 'user',
+              content: validationPrompt,
+            },
+          ],
+          temperature: 0.3,
+          responseFormat: { type: 'json_object' },
+        });
+        
+        result = JSON.parse(response.content);
+      } catch (error) {
+        // Fallback to OpenAI if Gemini fails
+        console.warn('Gemini visual validation failed, falling back to OpenAI:', error);
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY,
+        });
+        
+        const fallbackResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert SAT visual content validator. Always respond with valid JSON.',
+            },
+            {
+              role: 'user',
+              content: validationPrompt,
+            },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.3,
+        });
+        
+        result = JSON.parse(fallbackResponse.choices[0].message.content || '{}');
+      }
       
       // Add missing information to issues if present
       const issues = result.issues || [];
@@ -146,10 +185,25 @@ Respond in JSON format:
         score = Math.min(score, 0.6); // Cap at 0.6 if duplicates
       }
       
+      // Enhance corrections with specific improvements if provided
+      let enhancedCorrections = result.corrections || '';
+      if (result.specificImprovements) {
+        const improvements = result.specificImprovements;
+        const improvementList: string[] = [];
+        if (improvements.description) improvementList.push(`DESCRIPTION: ${improvements.description}`);
+        if (improvements.completeness) improvementList.push(`COMPLETENESS: ${improvements.completeness}`);
+        if (improvements.clarity) improvementList.push(`CLARITY: ${improvements.clarity}`);
+        if (improvements.size) improvementList.push(`SIZE: ${improvements.size}`);
+        
+        if (improvementList.length > 0) {
+          enhancedCorrections = `${enhancedCorrections}\n\nSPECIFIC IMPROVEMENTS NEEDED:\n${improvementList.join('\n\n')}`;
+        }
+      }
+      
       return {
-        isValid: result.isValid !== false && (!result.missingInformation || result.missingInformation.length === 0) && !result.hasDuplicates,
+        isValid: result.isValid !== false && (!result.missingInformation || result.missingInformation.length === 0) && !result.hasDuplicates && score >= 0.8, // Stricter: must be valid AND complete AND high score
         issues,
-        corrections: result.corrections,
+        corrections: enhancedCorrections,
         score,
       };
     } catch (error) {

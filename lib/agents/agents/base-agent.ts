@@ -3,6 +3,7 @@ import { fileReaderTool } from '../tools/file-reader';
 import { exampleRetrieverTool, listTopicsTool } from '../tools/example-retriever';
 import { questionValidatorTool } from '../tools/question-validator';
 import { visualValidatorTool } from '../tools/visual-validator';
+import { topicPlannerTool } from '../tools/topic-planner';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -25,6 +26,7 @@ export abstract class BaseAgent {
       listTopicsTool,
       questionValidatorTool,
       visualValidatorTool,
+      topicPlannerTool,
     ];
   }
 
@@ -73,17 +75,45 @@ export abstract class BaseAgent {
           },
         }));
 
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      ...(toolsToUse && { tools: toolsToUse }),
-      // Only set tool_choice if tools are provided
-      ...(toolsToUse && { tool_choice: toolChoice || 'auto' }),
-      temperature: 0.7,
-      ...(responseFormat && { response_format: responseFormat }),
-    });
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        ...(toolsToUse && { tools: toolsToUse }),
+        // Only set tool_choice if tools are provided
+        ...(toolsToUse && { tool_choice: toolChoice || 'auto' }),
+        temperature: 0.7,
+        ...(responseFormat && { response_format: responseFormat }),
+      });
 
-    return response;
+      return response;
+    } catch (error: any) {
+      // Check error code/message more carefully
+      const errorCode = error?.code || error?.error?.code || '';
+      const errorMessage = error?.message || error?.error?.message || '';
+      const statusCode = error?.status || error?.response?.status || error?.statusCode;
+      
+      // Handle quota errors specifically - only if explicitly insufficient_quota
+      if (errorCode === 'insufficient_quota' || errorMessage?.toLowerCase().includes('insufficient_quota')) {
+        const quotaError = new Error(
+          'OpenAI API quota exceeded. Please check your OpenAI billing and plan details.'
+        );
+        quotaError.name = 'QuotaExceededError';
+        throw quotaError;
+      }
+      
+      // Handle rate limit errors (429 but NOT insufficient_quota)
+      if (statusCode === 429 && errorCode !== 'insufficient_quota' && !errorMessage?.toLowerCase().includes('insufficient_quota')) {
+        const rateLimitError = new Error(
+          'OpenAI API rate limit exceeded. Please wait a moment and try again.'
+        );
+        rateLimitError.name = 'RateLimitError';
+        throw rateLimitError;
+      }
+      
+      // Re-throw other errors as-is
+      throw error;
+    }
   }
 
   /**

@@ -24,7 +24,8 @@ export default function PracticeSessionPage() {
   // For custom practice
   const section = searchParams.get('section');
   const topics = searchParams.get('topics')?.split(',') || [];
-  const subtopics = searchParams.get('subtopics')?.split(',') || [];
+  // Use pipe (|) as delimiter since subtopics can contain commas (e.g., "Form, Structure, and Sense")
+  const subtopics = searchParams.get('subtopics')?.split('|') || [];
   const difficulties = searchParams.get('difficulties')?.split(',') || [];
 
   useEffect(() => {
@@ -87,8 +88,14 @@ export default function PracticeSessionPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate question');
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          // If response is not JSON, use status text
+          throw new Error(`Failed to generate question: ${response.statusText}`);
+        }
+        throw new Error(errorData.error || errorData.details || 'Failed to generate question');
       }
 
       const result = await response.json();
@@ -142,16 +149,58 @@ export default function PracticeSessionPage() {
   }
 
   if (error) {
+    const isQuotaError = error.toLowerCase().includes('quota') || error.toLowerCase().includes('billing');
+    const isRateLimitError = error.toLowerCase().includes('rate limit');
+    
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 md:p-8">
         <div className="max-w-4xl mx-auto">
           <div className="bg-white rounded-2xl border border-red-200 shadow-sm p-6 md:p-8">
-            <h2 className="text-xl font-bold text-red-900 mb-4">Error</h2>
+            <h2 className="text-xl font-bold text-red-900 mb-4">
+              {isQuotaError ? 'API Quota Exceeded' : isRateLimitError ? 'Rate Limit Exceeded' : 'Error'}
+            </h2>
             <p className="text-red-700 mb-4">{error}</p>
-            <Button onClick={() => router.back()}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Go Back
-            </Button>
+            
+            {isQuotaError && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-yellow-900 mb-2">
+                  <strong>What this means:</strong> The system uses OpenAI's API to generate questions and retrieve context from your documents. Your OpenAI account has run out of credits.
+                </p>
+                <p className="text-sm text-yellow-900 mb-3">
+                  <strong>How to fix:</strong>
+                </p>
+                <ul className="text-sm text-yellow-900 list-disc list-inside space-y-1 mb-3">
+                  <li>Go to <a href="https://platform.openai.com/account/billing" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenAI Billing</a> and add credits to your account</li>
+                  <li>Or upgrade your OpenAI plan to get more credits</li>
+                </ul>
+                <p className="text-sm text-yellow-900">
+                  Once you've added credits, you can try generating questions again.
+                </p>
+              </div>
+            )}
+            
+            {isRateLimitError && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-blue-900">
+                  The API is temporarily rate-limited. Please wait a few moments and try again.
+                </p>
+              </div>
+            )}
+            
+            <div className="flex gap-3">
+              <Button onClick={() => router.back()}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Go Back
+              </Button>
+              {isQuotaError && (
+                <Button 
+                  onClick={() => window.open('https://platform.openai.com/account/billing', '_blank')}
+                  variant="outline"
+                >
+                  Open OpenAI Billing
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>

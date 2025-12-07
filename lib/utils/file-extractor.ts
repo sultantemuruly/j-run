@@ -65,35 +65,121 @@ export interface ExtractedContent {
 }
 
 /**
+ * Extract text from PDF using pdfjs-dist (fallback method)
+ * This is optional - if pdfjs-dist isn't available, it will throw
+ */
+async function extractFromPDFWithPdfJs(fileBuffer: Buffer): Promise<{ text: string; pageCount: number }> {
+  // Convert Buffer to Uint8Array (required by pdfjs-dist)
+  const uint8Array = new Uint8Array(fileBuffer);
+  
+  // Try to use pdfjs-dist as fallback
+  // pdfjs-dist requires canvas for Node.js, but we can try without it for text extraction
+  let pdfjs: any;
+  try {
+    // Try the standard import
+    pdfjs = await import('pdfjs-dist');
+  } catch (importError) {
+    // Try legacy build
+    try {
+      pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    } catch (legacyError) {
+      throw new Error(`pdfjs-dist not available: ${importError instanceof Error ? importError.message : importError}`);
+    }
+  }
+  
+  // Set up worker (required for pdfjs-dist)
+  // For Node.js, we can use a local worker or skip it for text extraction
+  if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+    // Try to use a CDN worker (works in Node.js with fetch)
+    try {
+      pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version || '3.11.174'}/pdf.worker.min.js`;
+    } catch {
+      // If that fails, try to disable worker (may work for text extraction)
+      pdfjs.GlobalWorkerOptions.workerSrc = false;
+    }
+  }
+  
+  const loadingTask = pdfjs.getDocument({ 
+    data: uint8Array, // Use Uint8Array instead of Buffer
+    verbosity: 0, // Suppress warnings
+    useSystemFonts: true, // Better compatibility
+  });
+  const pdfDocument = await loadingTask.promise;
+  const pageCount = pdfDocument.numPages;
+  
+  let fullText = '';
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdfDocument.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str || '')
+      .join(' ');
+    fullText += pageText + '\n';
+  }
+  
+  return { text: fullText.trim(), pageCount };
+}
+
+/**
  * Extract text and images from PDF files
+ * Tries pdf-parse first, falls back to pdfjs-dist if needed
  */
 export async function extractFromPDF(filePath: string): Promise<ExtractedContent> {
+  const fileBuffer = await fs.readFile(filePath);
+  let pdfData: any = null;
+  let usedFallback = false;
+  
+  // Try pdf-parse first
   try {
-    const fileBuffer = await fs.readFile(filePath);
-    // pdf-parse is a CommonJS module, load dynamically
     const pdfParseFn = await getPdfParse();
     
-    // Ensure it's a function before calling
-    if (!pdfParseFn || typeof pdfParseFn !== 'function') {
-      // If pdf-parse isn't working, return empty content instead of crashing
-      console.warn(`pdf-parse not available for ${filePath}. PDF parsing is currently disabled.`);
-      console.warn('This is expected if pdf-parse failed to load. PDF files will be skipped.');
-      return {
-        text: '',
-        images: [],
-        metadata: {
-          filename: path.basename(filePath),
-          fileType: 'pdf',
-        },
+    if (pdfParseFn && typeof pdfParseFn === 'function') {
+      // Call pdf-parse with the buffer
+      // Wrap in try-catch to handle AbortException specifically
+      try {
+        pdfData = await pdfParseFn(fileBuffer);
+      } catch (parseError: any) {
+        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        
+        // If it's AbortException, try fallback
+        if (errorMessage.includes('AbortException') || 
+            errorMessage.includes('cannot be invoked without') ||
+            errorMessage.includes('Aborted')) {
+          console.warn(`pdf-parse failed with AbortException for ${filePath}, trying fallback parser...`);
+          try {
+            usedFallback = true;
+            // Try fallback
+            const fallbackResult = await extractFromPDFWithPdfJs(fileBuffer);
+            pdfData = {
+              text: fallbackResult.text,
+              numpages: fallbackResult.pageCount,
+            };
+            console.log(`Successfully used pdfjs-dist fallback for ${filePath}`);
+          } catch (fallbackError) {
+            console.warn(`Fallback parser also failed for ${filePath}:`, fallbackError instanceof Error ? fallbackError.message : fallbackError);
+            throw parseError; // Throw original error
+          }
+        } else {
+          throw parseError;
+        }
+      }
+    } else {
+      // pdf-parse not available, try fallback
+      console.warn(`pdf-parse not available for ${filePath}, trying fallback parser...`);
+      usedFallback = true;
+      const fallbackResult = await extractFromPDFWithPdfJs(fileBuffer);
+      pdfData = {
+        text: fallbackResult.text,
+        numpages: fallbackResult.pageCount,
       };
     }
     
-    // Call pdf-parse with the buffer
-    const pdfData = await pdfParseFn(fileBuffer);
-    
     // Extract images from PDF (basic implementation)
-    // Note: pdf-parse doesn't extract images directly, you may need pdf-lib or pdfjs-dist for advanced image extraction
     const images: ExtractedContent['images'] = [];
+    
+    if (usedFallback) {
+      console.log(`Successfully parsed PDF ${filePath} using fallback parser`);
+    }
     
     return {
       text: pdfData.text || '',
@@ -105,10 +191,13 @@ export async function extractFromPDF(filePath: string): Promise<ExtractedContent
       },
     };
   } catch (error) {
-    // Gracefully handle PDF parsing errors
+    // All parsing methods failed
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to parse PDF ${filePath}:`, errorMessage);
-    // Return empty content so the system can continue
+    
+    console.error(`All PDF parsing methods failed for ${filePath}:`, errorMessage);
+    console.warn(`PDF parsing failed. File search will not work for this file. Falling back to RAG search.`);
+    
+    // Return empty content so the system can continue with RAG search
     return {
       text: '',
       images: [],

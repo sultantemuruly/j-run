@@ -1,6 +1,7 @@
 import { vectorStore } from './vector-store';
 import { DocumentChunk } from './document-processor';
 import { imageStorage } from '@/lib/utils/image-storage';
+import { searchFilesDirectly } from '@/lib/utils/file-search';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -44,6 +45,53 @@ export async function retrieveContext(
 ): Promise<RetrievedContext> {
   const { section, topic, subtopic, difficulty, maxExamples = 5 } = options;
   
+  // OPTIMIZATION: Try direct file search first (much cheaper - no embeddings)
+  if (section && topic && difficulty) {
+    const fileSearchResult = await searchFilesDirectly(section, topic, difficulty, subtopic, maxExamples);
+    
+    if (fileSearchResult.success && fileSearchResult.examples.length > 0) {
+      console.log(`Using direct file search for ${section}/${topic}/${difficulty} (${fileSearchResult.examples.length} examples found)`);
+      
+      // Still get rules from RAG (only need embeddings for structure docs)
+      let rules = 'Follow standard SAT question format and difficulty guidelines.';
+      let explanations = 'Ensure questions test the specified skills appropriately.';
+      
+      try {
+        // Only search for structure/rules documents (cheaper - smaller embedding set)
+        const structureSearch = await vectorStore.search('SAT structure rules format guidelines', {
+          limit: 10,
+          minSimilarity: 0.6,
+          filter: (chunk: any) => 
+            chunk.metadata.section === 'structure' || 
+            chunk.source.includes('sat_info') ||
+            chunk.source.includes('digital_sat_structure'),
+        });
+        
+        const structureChunks = structureSearch.map(r => r.chunk);
+        rules = structureChunks.map(c => c.text).join('\n\n') || rules;
+        explanations = structureChunks
+          .filter(c => c.text.toLowerCase().includes('explain') || c.text.toLowerCase().includes('note'))
+          .map(c => c.text)
+          .join('\n\n') || explanations;
+      } catch (error: any) {
+        // If RAG fails, use default rules (still have examples from file search)
+        console.warn('RAG structure search failed, using default rules:', error?.message);
+      }
+      
+      return {
+        rules,
+        explanations,
+        instructions: buildInstructions(section, topic, subtopic, difficulty),
+        examples: fileSearchResult.examples,
+        sourceChunks: [], // Not needed when using file search
+        visualExamples: fileSearchResult.visualExamples,
+      };
+    }
+  }
+  
+  // Fallback to RAG if file search fails or not enough info
+  console.log('Falling back to RAG search...');
+  
   // Build filter function
   const filter = (chunk: any) => {
     if (section && chunk.metadata.section !== section) return false;
@@ -53,11 +101,28 @@ export async function retrieveContext(
   };
   
   // Search for relevant chunks
-  const searchResults = await vectorStore.search(query, {
-    limit: 20,
-    minSimilarity: 0.7,
-    filter,
-  });
+  let searchResults;
+  try {
+    searchResults = await vectorStore.search(query, {
+      limit: 10, // Reduced from 20 to save costs
+      minSimilarity: 0.7,
+      filter,
+    });
+  } catch (error: any) {
+    // If embedding generation fails (e.g., quota exceeded), return minimal context
+    if (error?.name === 'QuotaExceededError' || error?.name === 'RateLimitError') {
+      console.warn('RAG retrieval failed due to API quota/rate limit. Returning minimal context.');
+      return {
+        rules: 'Follow standard SAT question format and difficulty guidelines.',
+        explanations: 'Ensure questions test the specified skills appropriately.',
+        instructions: buildInstructions(section, topic, subtopic, difficulty),
+        examples: [],
+        sourceChunks: [],
+        visualExamples: [],
+      };
+    }
+    throw error;
+  }
   
   // Separate structure/rules from examples
   const structureChunks = searchResults
@@ -297,19 +362,36 @@ export async function retrieveExamples(
 ): Promise<RetrievedContext['examples']> {
   const samplesPath = path.join(process.cwd(), 'data', 'samples');
   const topicPath = path.join(samplesPath, section, topic);
-  const difficultyFile = path.join(topicPath, `${difficulty}.pdf`);
+  
+  // Prefer DOCX files (more reliable parsing), fallback to PDF
+  const docxFile = path.join(topicPath, `${difficulty}.docx`);
+  const pdfFile = path.join(topicPath, `${difficulty}.pdf`);
+  
+  let difficultyFile: string | null = null;
+  
+  // Check for DOCX first (preferred - more reliable)
+  try {
+    await fs.access(docxFile);
+    difficultyFile = docxFile;
+  } catch {
+    // DOCX doesn't exist, try PDF
+    try {
+      await fs.access(pdfFile);
+      difficultyFile = pdfFile;
+    } catch {
+      // Neither file exists, return empty examples
+      return [];
+    }
+  }
   
   try {
-    // Check if file exists
-    await fs.access(difficultyFile);
-    
     // Read and extract questions from the file
     const { extractFileContent } = await import('@/lib/utils/file-extractor');
     let content;
     try {
       content = await extractFileContent(difficultyFile);
     } catch (error) {
-      // If PDF parsing fails, skip this file and return empty examples
+      // If parsing fails, skip this file and return empty examples
       console.warn(`Failed to extract content from ${difficultyFile}:`, error instanceof Error ? error.message : error);
       return [];
     }
